@@ -190,6 +190,38 @@ Result from the second inference:
 [ CUDAFloatType{2,1} ]
 ```
 
+## Running as CUDA graphs
+
+A CUDA model compiled with `aot_inductor.cudagraphs=True` can run as CUDA graphs
+that the runtime captures and replays, which cuts the host overhead of launching
+kernels. The compile fails if the model can't be captured, e.g. because it runs
+ops on the CPU, syncs with the host, or has data-dependent shapes.
+
+```python
+package_path = torch._inductor.aoti_compile_and_package(
+    torch.export.export(model, example_inputs),
+    inductor_configs={"aot_inductor.cudagraphs": True},
+)
+compiled = torch._inductor.aoti_load_package(package_path)
+out = compiled.run_with_cuda_graph(*example_inputs)
+```
+
+In C++, `AOTIModelPackageLoader::run_with_cuda_graph` takes the same arguments as `run`.
+
+- A new input layout (shapes and strides) runs eagerly on its first call, is
+  captured on its next call and replayed after that. A thread's first call on
+  each model instance also runs eagerly, since some libraries set up per
+  thread.
+- Each model instance (see `num_runners`) keeps up to
+  `AOTI_RUNTIME_CUDA_GRAPH_MAX_GRAPHS` graphs (an environment variable, default
+  8) in its own memory pool; past that, new layouts run eagerly.
+- Replayed outputs are copies: they don't alias the inputs, and views among
+  outputs come back as separate tensors.
+- If a capture fails but the eager call succeeds, that layout runs eagerly from
+  then on, with a warning.
+- Once a graph is captured, the active constants can't change; the inactive
+  constant buffer can still be updated.
+
 ## Troubleshooting
 
 Below are some useful tools for debugging AOT Inductor.
