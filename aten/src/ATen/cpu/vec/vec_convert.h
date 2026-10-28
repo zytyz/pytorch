@@ -21,7 +21,7 @@ struct VecConvert {
     __at_align__ src_t src_buf[VectorizedN<src_t, src_n>::size()];
     src.store(src_buf);
     __at_align__ dst_t dst_buf[VectorizedN<dst_t, dst_n>::size()];
-    for (const auto i : c10::irange(count)) {
+    for (int i = 0; i < count; i++) {
       dst_buf[i] = static_cast<dst_t>(src_buf[i]);
     }
     return VectorizedN<dst_t, dst_n>::loadu(dst_buf, count);
