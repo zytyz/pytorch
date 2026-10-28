@@ -636,6 +636,59 @@ AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cuda_caching_allocator_raw_alloc(
 AOTI_TORCH_EXPORT AOTITorchError
 aoti_torch_cuda_caching_allocator_raw_delete(void* ptr);
 
+#if TORCH_FEATURE_VERSION >= TORCH_VERSION_2_16_0
+// CUDA graph capture: thin wrappers over at::cuda::MemPool and
+// at::cuda::CUDAGraph, with that C++ API's contract rather than
+// torch.cuda.graph's: no warm-up, synchronization or tensor lifetime
+// management. capture_begin and capture_end use the current stream, which
+// must be on the pool's device; replay uses the current stream of the
+// capture's device. Captures are thread-local, and a graph captures once.
+// Callers must:
+// - capture on a cudaStreamNonBlocking stream;
+// - end every capture, even a failed one, with capture_end on its thread and
+//   stream before deleting the graph. On ROCm, a stream whose capture was
+//   invalidated rejects work until the next capture begins;
+// - use a pool and its graphs from one thread at a time, capture into a pool
+//   one graph at a time, and use a new pool once every graph that began a
+//   capture into it is deleted;
+// - not overlap replays of graphs sharing a pool, and use a replay's outputs
+//   before replaying another graph of the pool, unless replaying in capture
+//   order;
+// - order earlier work on the capture stream before a replay on another
+//   stream, and wait for a graph's replays before deleting it.
+struct CUDAMemPoolOpaque;
+using CUDAMemPoolHandle = CUDAMemPoolOpaque*;
+
+struct CUDAGraphOpaque;
+using CUDAGraphHandle = CUDAGraphOpaque*;
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_create_cuda_mem_pool(
+    int32_t device_index,
+    CUDAMemPoolHandle* ret_pool // returns new reference
+);
+
+// Graphs captured into the pool keep its memory until they are deleted.
+AOTI_TORCH_EXPORT AOTITorchError
+aoti_torch_delete_cuda_mem_pool(CUDAMemPoolHandle pool);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_create_cuda_graph(
+    CUDAGraphHandle* ret_graph // returns new reference
+);
+
+AOTI_TORCH_EXPORT AOTITorchError
+aoti_torch_delete_cuda_graph(CUDAGraphHandle graph);
+
+AOTI_TORCH_EXPORT AOTITorchError aoti_torch_cuda_graph_capture_begin(
+    CUDAGraphHandle graph,
+    CUDAMemPoolHandle pool);
+
+AOTI_TORCH_EXPORT AOTITorchError
+aoti_torch_cuda_graph_capture_end(CUDAGraphHandle graph);
+
+AOTI_TORCH_EXPORT AOTITorchError
+aoti_torch_cuda_graph_replay(CUDAGraphHandle graph);
+#endif // TORCH_FEATURE_VERSION >= TORCH_VERSION_2_16_0
+
 #endif // USE_CUDA
 
 // See `ProxyExecutor Design Note` in ir.py for more details
